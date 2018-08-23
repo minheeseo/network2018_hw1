@@ -264,17 +264,39 @@ plot(eclusts, hang=-1)
 
 
 
-```{r blockmodel, eval=T, echo=T, warning=F, message=F}
+```{r blockmodel, eval=F, message=F, warning=F}
+# running the block model using cross-validation using different K (3 to 10)
+library(caret)
+library(intergraph)
+library(btergm)
+# check whether name order is the same
+nigeria.dat <- network(as.matrix(network.mat[[18]]),directed = T, loops = F)
+identical(rownames(network.mat[[18]]),nigeria.dat%v%'vertex.names')
+roc <- pr <- c()
 
-
-
-# running the block model using cross-validation
-
-# save the node classification from each run
-
-# out of sample cross validation to validate "k"
-
-# report ROC statistics from each model
+nigeriaCV <- function(dat, folds=10, k=7){
+  set.seed(51253)
+  # create folds
+  index <- createFolds(y = unique(rownames(network.mat[[18]])), k=folds, returnTrain=T)
+  for(i in 1:folds){
+    # create train/test dataset
+    removeVertex <- which(rownames(network.mat[[18]]) %in% rownames(network.mat[[18]])[-index[[i]]])
+    outofsamplevertex <- which(rownames(network.mat[[18]]) %in% rownames(network.mat[[18]])[index[[i]]])
+    train <- delete.vertices(nigeria.dat,removeVertex)
+    test <- delete.vertices(nigeria.dat,outofsamplevertex)
+    train.cluster <- equiv.clust(train)
+    # run block model
+    train.blockmodel <- blockmodel(train, train.cluster, k=k)
+    bmembership <- train.blockmodel$block.membership[order(train.blockmodel$order.vec)]
+    train%v%'group' <- bmembership
+    # fit a model
+    modelout <- ergm(train ~ edges + nodecov("group"))
+    # predict to out of sample
+    gof.mod <- gof(modelout, rocprgof=T,target=test,outofsample=T, statistics = c(rocpr), nsim=100)
+    roc[i] <- gof.mod$'Tie prediction'$auc.roc
+    pr[i] <- gof.mod$'Tie prediction'$auc.pr
+  }
+}
 
 ```
 
@@ -286,6 +308,7 @@ set.seed(688346)
 nigeria <- as.matrix(network.mat[[18]])
 diag(nigeria) <- NA
 nigeria <- as.network.matrix(nigeria)
+temp <- graph.adjacency(as.matrix(network.mat[[18]]), mode='directed', weighted=TRUE,diag=F)
 nigeria %v% "group" <- ifelse(names(V(temp))=="Police (Nigeria)" | names(V(temp))=="Military (Nigeria)", 1, 0)
 ergm.network <- ergm(nigeria ~ edges + mutual + nodematch('group'))
 summary(ergm.network)
@@ -302,4 +325,4 @@ ergm.network.gof = gof(ergm.network)
 plot(ergm.network.gof)
 ```
 
-To check the model fit, first, I examine the MCMC chains. They are well-mixed and stationary. Next, I check a goodness-of-fit of the model. Observed distributions (black lines) are generally within simulated ones. By looking at these plots, my model seems to be a reasonable approximation of the network. 
+To check the model fit, first, I examine the MCMC chains. They are well-mixed and stationary. Next, I check a goodness-of-fit of the model. Observed distributions (black lines) are generally within simulated ones. By looking at these plots, my model seems to be a reasonable approximation of the network. Interestingly, for minimum geodescic distance plot, you can see NR is quite high. This indicates "Nonreachable" distance. From exercise 1, we can see that certain nodes never interact with other nodes, and these nodes are unreachable. This is why we see NR in this graph. Other than this, they all look normal.
